@@ -1,19 +1,31 @@
-# Comprehensive Destination Cleaning Script with Countries and Regions
+# === Comprehensive Destination Cleaning w/ Countries + Explicit Regions (keeps older columns) ===
+# This script:
+# 1) Keeps ALL original output columns:
+#    - cleaned_destinations, countries_only, regions_only, country_count, region_count
+# 2) Adds NEW columns driven by explicit region logic:
+#    - Explicit Regions Only
+#    - Countries + Explicit Regions (No Auto-Region)
+#    - Country-or-ExplicitRegion (Prefer Country)
+#    - explicit_region_count
+# 3) Preserves presentation layer (renames + relocates the key columns, drops unwanted cols)
+# 4) Saves to: Freely_destinations_fully_cleaned_v3_country_plus_explicit_regions.csv
 
 library(dplyr)
 library(stringr)
 library(tidyr)
 
-# Read the data
+# Read the data (expects a column named `destinations`)
 df <- read.csv("Freely_cleaned_destinations.csv", stringsAsFactors = FALSE)
 
-# Define regions
-regions_list <- c("Europe", "Asia", "Africa", "North America", "South America", 
-                  "Oceania", "Middle East", "Caribbean", "Pacific Islands",
-                  "Central America", "Southeast Asia", "East Asia", "South Asia",
-                  "Central Asia", "Western Europe", "Eastern Europe", "Northern Europe",
-                  "Southern Europe", "Scandinavia", "Baltic States", "Balkans", "Worldwide",
-                  "Antarctica")
+# Define regions universe
+regions_list <- c(
+  "Europe", "Asia", "Africa", "North America", "South America", 
+  "Oceania", "Middle East", "Caribbean", "Pacific Islands",
+  "Central America", "Southeast Asia", "East Asia", "South Asia",
+  "Central Asia", "Western Europe", "Eastern Europe", "Northern Europe",
+  "Southern Europe", "Scandinavia", "Baltic States", "Balkans", "Worldwide",
+  "Antarctica"
+)
 
 # Define countries by region
 region_countries <- list(
@@ -172,7 +184,7 @@ location_to_country <- list(
   "crete" = "Greece", "rhodes" = "Greece", "corfu" = "Greece",
   "thessaloniki" = "Greece", "zakynthos" = "Greece",
   
-  # UAE
+  # UAE & Qatar
   "dubai" = "United Arab Emirates", "abu dhabi" = "United Arab Emirates",
   "uae" = "United Arab Emirates", "united arab emirates" = "United Arab Emirates",
   "doha" = "Qatar",
@@ -244,7 +256,7 @@ location_to_country <- list(
   "azerbaijan" = "Azerbaijan",
   "georgia" = "Georgia",
   
-  # Turkey
+  # Turkey cities
   "istanbul" = "Turkey", "cappadocia" = "Turkey",
   "antalya" = "Turkey", "bodrum" = "Turkey",
   
@@ -358,7 +370,7 @@ location_to_country <- list(
   "reunion" = "Reunion"
 )
 
-# Function to determine region for a country
+# Helper: determine region for a given country (from region_countries map)
 get_region <- function(country) {
   for (region in names(region_countries)) {
     if (country %in% region_countries[[region]]) {
@@ -368,169 +380,149 @@ get_region <- function(country) {
   return(NA)
 }
 
-# Function to parse and clean destinations
+# Parser that tracks EXPLICIT region mentions separately from inferred regions
 parse_destinations <- function(dest_string) {
   if (is.na(dest_string) || dest_string == "" || trimws(dest_string) == "") {
-    return(list(countries = character(0), regions = character(0)))
+    return(list(countries = character(0), regions = character(0), explicit_regions = character(0)))
   }
   
-  dest_string_original <- dest_string
-  dest_string <- tolower(as.character(dest_string))
-  
+  dest_string_lower <- tolower(as.character(dest_string))
   all_countries <- c()
-  all_regions <- c()
+  explicit_regions <- c()
   
-  # Split by common separators first to get all items
-  dest_list <- unlist(strsplit(dest_string, "[,;/&+]|\\band\\b"))
+  # Split by common separators and the word 'and'
+  dest_list <- unlist(strsplit(dest_string_lower, "[,;/&+]|\\band\\b"))
   dest_list <- trimws(dest_list)
   dest_list <- dest_list[dest_list != ""]
   
-  # Process each item
   for (dest in dest_list) {
-    dest_clean <- trimws(dest)
+    d <- trimws(dest)
+    if (nchar(d) < 2) next
     
-    # Skip empty
-    if (nchar(dest_clean) < 2) next
-    
-    # Check for "All of..." pattern
-    if (grepl("^all of", dest_clean)) {
-      # Extract what comes after "all of"
-      region_text <- str_replace(dest_clean, "^all of\\s+", "")
-      region_text <- str_replace(region_text, "^the\\s+", "")
-      region_text <- trimws(region_text)
+    # Handle "All of ..." patterns (explicit region capture + special rule for Pacific)
+    if (grepl("^all of", d)) {
+      r <- d
+      r <- str_replace(r, "^all of\\s+", "")
+      r <- str_replace(r, "^the\\s+", "")
+      r <- gsub("\\s*\\([^)]+\\)", "", r) # remove parentheses content
+      r <- trimws(r)
       
-      # Remove anything in parentheses for matching
-      region_text_clean <- gsub("\\s*\\([^)]+\\)", "", region_text)
-      region_text_clean <- trimws(region_text_clean)
-      
-      # Map "All of..." to specific regions/countries
-      if (grepl("^uk$|^united kingdom$", region_text_clean)) {
+      if (grepl("^uk$|^united kingdom$", r)) {
         all_countries <- c(all_countries, "United Kingdom")
-        all_regions <- c(all_regions, "Europe")
+        # treat as explicitly covering Europe
+        if (!("Europe" %in% explicit_regions)) explicit_regions <- c(explicit_regions, "Europe")
         next
-      } else if (grepl("^europe", region_text_clean)) {
-        all_regions <- c(all_regions, "Europe")
+      } else if (grepl("^europe", r)) {
+        explicit_regions <- c(explicit_regions, "Europe"); next
+      } else if (grepl("^asia", r)) {
+        explicit_regions <- c(explicit_regions, "Asia"); next
+      } else if (grepl("^south america", r)) {
+        explicit_regions <- c(explicit_regions, "South America"); next
+      } else if (grepl("^north america", r)) {
+        explicit_regions <- c(explicit_regions, "North America"); next
+      } else if (grepl("^africa", r)) {
+        explicit_regions <- c(explicit_regions, "Africa"); next
+      } else if (grepl("^oceania", r)) {
+        explicit_regions <- c(explicit_regions, "Oceania"); next
+      } else if (grepl("^caribbean", r)) {
+        explicit_regions <- c(explicit_regions, "Caribbean"); next
+      } else if (grepl("^middle east", r)) {
+        explicit_regions <- c(explicit_regions, "Middle East"); next
+      } else if (grepl("^pacific", r)) {
+        # Special rule: "All of the Pacific (Pacific Islands)" -> add country "Pacific Islands" + explicit region "Oceania"
+        all_countries <- c(all_countries, "Pacific Islands")
+        if (!("Oceania" %in% explicit_regions)) explicit_regions <- c(explicit_regions, "Oceania")
         next
-      } else if (grepl("^asia", region_text_clean)) {
-        all_regions <- c(all_regions, "Asia")
-        next
-      } else if (grepl("^south america", region_text_clean)) {
-        all_regions <- c(all_regions, "South America")
-        next
-      } else if (grepl("^north america", region_text_clean)) {
-        all_regions <- c(all_regions, "North America")
-        next
-      } else if (grepl("^africa", region_text_clean)) {
-        all_regions <- c(all_regions, "Africa")
-        next
-      } else if (grepl("^oceania", region_text_clean)) {
-        all_regions <- c(all_regions, "Oceania")
-        next
-      } else if (grepl("^caribbean", region_text_clean)) {
-        all_regions <- c(all_regions, "Caribbean")
-        next
-      } else if (grepl("^middle east", region_text_clean)) {
-        all_regions <- c(all_regions, "Middle East")
-        next
-      } else if (grepl("^pacific", region_text_clean)) {
-        # Check if it mentions Pacific Islands specifically
-        if (grepl("pacific islands", region_text_clean)) {
-          all_countries <- c(all_countries, "Pacific Islands")
-          all_regions <- c(all_regions, "Oceania")
-        } else {
-          all_regions <- c(all_regions, "Oceania")
-        }
-        next
-      } else if (grepl("^americas|^central america", region_text_clean)) {
-        all_regions <- c(all_regions, "Central America")
-        next
+      } else if (grepl("^americas|^central america", r)) {
+        explicit_regions <- c(explicit_regions, "Central America"); next
       }
     }
     
-    # Check if it's "worldwide"
-    if (grepl("^worldwide$|^world$", dest_clean)) {
-      all_regions <- c(all_regions, "Worldwide")
-      next
+    # Explicit region tokens (non-All-of)
+    if (grepl("^worldwide$|^world$", d)) {
+      explicit_regions <- c(explicit_regions, "Worldwide"); next
+    }
+    if (grepl("south\\s?west\\s?pacific|southwest pacific", d)) {
+      explicit_regions <- c(explicit_regions, "Oceania"); next
     }
     
-    # Check for "South West Pacific" patterns
-    if (grepl("south west pacific", dest_clean) || grepl("southwest pacific", dest_clean)) {
-      all_regions <- c(all_regions, "Oceania")
-      next
-    }
-    
-    # Check if it's a region name
-    dest_title <- tools::toTitleCase(dest_clean)
+    # If token is an exact region name (title case)
+    dest_title <- tools::toTitleCase(d)
     if (dest_title %in% regions_list) {
-      all_regions <- c(all_regions, dest_title)
-      next
+      explicit_regions <- c(explicit_regions, dest_title); next
     }
     
-    # Check if it's in our city/location mapping
+    # City/location mapping to country
     matched <- FALSE
     for (location in names(location_to_country)) {
-      if (grepl(paste0("\\b", location, "\\b"), dest_clean)) {
+      if (grepl(paste0("\\b", location, "\\b"), d)) {
         country <- location_to_country[[location]]
         all_countries <- c(all_countries, country)
         matched <- TRUE
         break
       }
     }
+    if (matched) next
     
-    # If not matched, assume it's a country name
-    if (!matched) {
-      country_name <- tools::toTitleCase(dest_clean)
-      
-      # Handle variations
-      if (grepl("korea", country_name, ignore.case = TRUE) && 
-          !grepl("north", country_name, ignore.case = TRUE)) {
-        country_name <- "South Korea"
-      } else if (grepl("united states|u\\.s\\.|u\\.s\\.a|america", country_name, ignore.case = TRUE) &&
-                 !grepl("south america|central america", country_name, ignore.case = TRUE)) {
-        country_name <- "USA"
-      } else if (grepl("new zealand", country_name, ignore.case = TRUE) ||
-                 grepl("\\bnz\\b", dest_clean)) {
-        country_name <- "New Zealand"
-      } else if (grepl("turkey|türkiye|turkiye", country_name, ignore.case = TRUE)) {
-        country_name <- "Turkey"
-      } else if (grepl("uae", dest_clean) || grepl("united arab emirates", dest_clean)) {
-        country_name <- "United Arab Emirates"
-      } else if (grepl("burma", dest_clean)) {
-        country_name <- "Myanmar"
-      } else if (grepl("png", dest_clean) || grepl("papua new guinea", dest_clean)) {
-        country_name <- "Papua New Guinea"
-      }
-      
-      all_countries <- c(all_countries, country_name)
+    # Else assume country name with normalisations
+    country_name <- tools::toTitleCase(d)
+    if (grepl("korea", country_name, ignore.case = TRUE) && 
+        !grepl("north", country_name, ignore.case = TRUE)) {
+      country_name <- "South Korea"
+    } else if (grepl("united states|u\\.s\\.|u\\.s\\.a|america", country_name, ignore.case = TRUE) &&
+               !grepl("south america|central america", country_name, ignore.case = TRUE)) {
+      country_name <- "USA"
+    } else if (grepl("new zealand", country_name, ignore.case = TRUE) ||
+               grepl("\\bnz\\b", d)) {
+      country_name <- "New Zealand"
+    } else if (grepl("turkey|türkiye|turkiye", country_name, ignore.case = TRUE)) {
+      country_name <- "Turkey"
+    } else if (grepl("uae", d) || grepl("united arab emirates", d)) {
+      country_name <- "United Arab Emirates"
+    } else if (grepl("burma", d)) {
+      country_name <- "Myanmar"
+    } else if (grepl("png", d) || grepl("papua new guinea", d)) {
+      country_name <- "Papua New Guinea"
     }
+    all_countries <- c(all_countries, country_name)
   }
   
-  # Remove duplicates
+  # Deduplicate
   all_countries <- unique(all_countries)
+  explicit_regions <- unique(explicit_regions)
   
-  # Add regions for countries if not already specified
+  # Build "regions" (legacy behaviour: explicit + inferred from countries)
+  all_regions <- explicit_regions
   for (country in all_countries) {
     region <- get_region(country)
     if (!is.na(region) && !(region %in% all_regions)) {
       all_regions <- c(all_regions, region)
     }
   }
-  
   all_regions <- unique(all_regions)
   
-  return(list(countries = all_countries, regions = all_regions))
+  return(list(
+    countries = all_countries,
+    regions = all_regions,            # explicit + inferred (legacy semantics)
+    explicit_regions = explicit_regions
+  ))
 }
 
-# Process all rows
-
+# ==== Process all rows ====
 pb <- txtProgressBar(min = 0, max = nrow(df), style = 3)
 
-# Initialize result columns
-df$cleaned_destinations <- character(nrow(df))
-df$countries_only <- character(nrow(df))
-df$regions_only <- character(nrow(df))
-df$country_count <- integer(nrow(df))
-df$region_count <- integer(nrow(df))
+# Initialize result columns (KEEP your original columns)
+df$cleaned_destinations <- character(nrow(df))     # legacy combined (countries + regions incl. inferred)
+df$countries_only <- character(nrow(df))           # countries only
+df$regions_only <- character(nrow(df))             # regions (explicit + inferred)
+df$country_count <- integer(nrow(df))              # count of countries
+df$region_count <- integer(nrow(df))               # count of regions (explicit + inferred)
+
+# NEW columns requested
+df$explicit_regions_only <- character(nrow(df))                # regions explicitly mentioned in raw text only
+df$country_plus_explicit_regions <- character(nrow(df))        # countries + explicit regions only (no auto-region)
+df$country_or_explicit_region <- character(nrow(df))           # prefer countries; fallback to explicit regions
+df$explicit_region_count <- integer(nrow(df))                  # count of explicit regions only
 
 for (i in 1:nrow(df)) {
   setTxtProgressBar(pb, i)
@@ -538,50 +530,81 @@ for (i in 1:nrow(df)) {
   result <- parse_destinations(df$destinations[i])
   
   countries <- result$countries
-  regions <- result$regions
+  regions <- result$regions                    # explicit + inferred (legacy)
+  explicit_regions <- result$explicit_regions  # explicit only
   
-  # Build cleaned destinations with both countries and regions
+  # (KEPT) legacy: countries + all regions (explicit + inferred)
   all_items <- c(countries, regions)
   df$cleaned_destinations[i] <- ifelse(length(all_items) > 0, 
                                        paste(all_items, collapse = ", "), 
                                        NA)
   
+  # (KEPT) Countries Only
   df$countries_only[i] <- ifelse(length(countries) > 0, 
                                  paste(countries, collapse = ", "), 
                                  NA)
   
+  # (KEPT) Regions Only (explicit + inferred)
   df$regions_only[i] <- ifelse(length(regions) > 0, 
                                paste(regions, collapse = ", "), 
                                NA)
   
+  # (KEPT) Counts
   df$country_count[i] <- length(countries)
-  df$region_count[i] <- length(regions)
+  df$region_count[i]  <- length(regions)
+  
+  # (NEW) Explicit Regions Only
+  df$explicit_regions_only[i] <- ifelse(length(explicit_regions) > 0, 
+                                        paste(explicit_regions, collapse = ", "), 
+                                        NA)
+  
+  # (NEW) Countries + Explicit Regions (No Auto-Region)
+  ce <- c(countries, explicit_regions)
+  df$country_plus_explicit_regions[i] <- ifelse(length(ce) > 0, 
+                                                paste(ce, collapse = ", "), 
+                                                NA)
+  
+  # (NEW) Country-or-ExplicitRegion (Prefer Country)
+  df$country_or_explicit_region[i] <- ifelse(length(countries) > 0,
+                                             paste(countries, collapse = ", "),
+                                             ifelse(length(explicit_regions) > 0,
+                                                    paste(explicit_regions, collapse = ", "),
+                                                    NA))
+  
+  # (NEW) Explicit region count
+  df$explicit_region_count[i] <- length(explicit_regions)
 }
-
 close(pb)
 
 # Replace empty strings with NA
-df$cleaned_destinations[df$cleaned_destinations == ""] <- NA
-df$countries_only[df$countries_only == ""] <- NA
-df$regions_only[df$regions_only == ""] <- NA
+na_empty <- function(x) { x[x == ""] <- NA; x }
+df$cleaned_destinations <- na_empty(df$cleaned_destinations)
+df$countries_only <- na_empty(df$countries_only)
+df$regions_only <- na_empty(df$regions_only)
+df$explicit_regions_only <- na_empty(df$explicit_regions_only)
+df$country_plus_explicit_regions <- na_empty(df$country_plus_explicit_regions)
+df$country_or_explicit_region <- na_empty(df$country_or_explicit_region)
 
+# ===== Presentation layer (KEEP your previous renames/order; add new columns alongside) =====
 
-
-
-
-# 1) Rename columns
+# 1) Rename columns for presentation
 df <- df %>%
   dplyr::rename(
     `Original (uncleaned destinations)` = destinations,
     `Countries Only` = countries_only,
-    `Regions Only` = regions_only,
-    `Destinations (Countries AND Regions)` = cleaned_destinations
+    `Regions Only` = regions_only,                                        # explicit + inferred (unchanged)
+    `Explicit Regions Only` = explicit_regions_only,                      # NEW
+    `Destinations (Countries AND Regions)` = cleaned_destinations,        # legacy combined
+    `Countries + Explicit Regions (No Auto-Region)` = country_plus_explicit_regions, # NEW
+    `Country-or-ExplicitRegion (Prefer Country)` = country_or_explicit_region       # NEW
   )
 
-# 2) Reorder so they sit side-by-side in this order:
+# 2) Reorder so they sit side-by-side in this order (you can tweak this order if desired)
 desired_block <- c(
   "Original (uncleaned destinations)",
   "Countries Only",
+  "Explicit Regions Only",
+  "Countries + Explicit Regions (No Auto-Region)",
   "Regions Only",
   "Destinations (Countries AND Regions)"
 )
@@ -591,23 +614,25 @@ df <- df %>% dplyr::relocate(dplyr::all_of(desired_block), .before = 1)
 cols_to_drop <- c("primary_country", "country_name_list", "region_name_list", "unknown_tokens", "unknown_n")
 df <- df %>% dplyr::select(-dplyr::any_of(cols_to_drop))
 
-
+# ===== Summary =====
 cat("\n\nCleaning Summary:\n")
 cat("================\n")
 cat("Total rows processed:", nrow(df), "\n")
-cat("Rows with destinations (countries AND regions):",
-    sum(!is.na(df$`Destinations (Countries AND Regions)`)), "\n")
 cat("Rows with countries:", sum(!is.na(df$`Countries Only`)), "\n")
-cat("Rows with regions:", sum(!is.na(df$`Regions Only`)), "\n")
+cat("Rows with explicit regions:", sum(!is.na(df$`Explicit Regions Only`)), "\n")
+cat("Rows with countries + explicit regions:", sum(!is.na(df$`Countries + Explicit Regions (No Auto-Region)`)), "\n")
+cat("Rows with regions (explicit + inferred):", sum(!is.na(df$`Regions Only`)), "\n")
 
 cat("\n\nCountry count distribution:\n")
 print(table(df$country_count))
 
-cat("\n\nRegion count distribution:\n")
+cat("\n\nExplicit region count distribution:\n")
+print(table(df$explicit_region_count))
+
+cat("\n\n(All) region count distribution (explicit + inferred):\n")
 print(table(df$region_count))
 
 # Save the cleaned data
-output_file <- "Freely_destinations_fully_cleaned_v2.csv"
+output_file <- "Freely_destinations_fully_cleaned_v3_country_plus_explicit_regions.csv"
 write.csv(df, output_file, row.names = FALSE)
 cat("\n\nCleaned data saved to:", output_file, "\n")
-
