@@ -14,8 +14,7 @@ countcountries <- function(data) {
 allCountries <- countcountries(curr_cleaned_data$Countries.Only)
 yesCountries <- countcountries(yeses$Countries.Only)
 
-world_map <- map_data("world") %>%
-  subset(region != "Antarctica")
+world_map <- map_data("world")
 
 ggplot(allCountries) +
   geom_map(
@@ -46,3 +45,4 @@ ggplot(percentageConversion) +
   geom_map(map = world_map, aes(map_id = country, fill = n), linewidth = 0.25) +
   scale_fill_gradient(low = "#fff7bc", high = "#cc4c02", name = "Percent Conversions") +
   expand_limits(x = world_map$long, y = world_map$lat)
+
