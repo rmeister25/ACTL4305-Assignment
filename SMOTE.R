@@ -187,6 +187,14 @@ genData <- genData$data
 table(genData$class)
 write.csv(genData, "training_SMOTE_dataset.csv")
 write.csv(test_scaled, "test_dataset.csv")
+write.csv(test, "test_scaled_dataset.csv")
+write.csv(train, "training_dataset_80%.csv")
+
+train_stats <- data.frame(
+  cbind(mean = mean_train, sd = sd_train)
+)
+
+write.csv(train_stats, "mean_sd_training_data.csv")
 
 # ## NON-SCALED training data
 # x <- as.data.frame(train[,-28])
