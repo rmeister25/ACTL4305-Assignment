@@ -7,7 +7,6 @@ library(smotefamily)
 library(themis)
 
 options(scipen = 999)
-# setwd("Desktop/ACTL4305-Assignment")
 freely_data <- read.csv("Cleaned_Destinations_Dates_Freely_Data.csv")
 
 # Removing NA values ~ 8000 data points lost
@@ -159,14 +158,16 @@ test <- quote_data[-inTrain, ]
 train_r <- as.factor(train$convert)
 test_r <- as.factor(test$convert)
 
+binary_cols <- which(sapply(quote_data, function(x) all(unique(x) %in% c(0, 1))))
+non_binary_cols <- setdiff(1:ncol(train), binary_cols)
+
+
 # Scaling road data
 mean_train <- colMeans(train[, non_binary_cols])
 sd_train <- apply(train[, non_binary_cols], 2, sd)
 
 
 ## Scaling
-binary_cols <- which(sapply(quote_data, function(x) all(unique(x) %in% c(0, 1))))
-non_binary_cols <- setdiff(1:ncol(train), binary_cols)
 
 train_scaled <- cbind(
   scale(train[, non_binary_cols]),
@@ -180,14 +181,23 @@ test_scaled <- as.matrix(
 
 # Balancing Imbalanced Dataset
 # SMOTE to oversample minority class
-x_scaled <- as.data.frame(train_scaled[,-28])
-y_scaled <- as.factor(train_scaled[,28])
-genData = SMOTE(x_scaled,y_scaled, K = 5, dup_size = 5)
+x_scaled <- as.data.frame(train_scaled[, !colnames(train_scaled) == "convert"])
+y <- as.factor(train_scaled$convert) # I've renamed this variable. dont need to scale this. 
+genData = SMOTE(x_scaled,y, K = 5, dup_size = 5)
 genData <- genData$data
-table(genData$class)
+genData$class <- as.numeric(as.character(genData$class))
+# Renamed class to convert.
+colnames(genData)[colnames(genData) == "class"] <- "convert"
+table(genData$convert)
+
+# SMOTED dataset ~ use for training the model
 write.csv(genData, "training_SMOTE_dataset.csv")
-write.csv(test_scaled, "test_dataset.csv")
-write.csv(test, "test_scaled_dataset.csv")
+
+# The names of the sheets should be the other way round. 
+write.csv(test_scaled, "test_scaled_dataset.csv")
+write.csv(test, "test_original_dataset.csv")
+
+# Original training dataset
 write.csv(train, "training_dataset_80%.csv")
 
 train_stats <- data.frame(
