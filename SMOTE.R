@@ -6,8 +6,10 @@ library(glmnet)
 library(smotefamily)
 library(themis)
 
+setwd("Desktop/ACTL4305-Assignment")
 options(scipen = 999)
 freely_data <- read.csv("Cleaned_Destinations_Dates_Freely_Data.csv")
+freely_data$X <- NULL
 
 # Removing NA values ~ 8000 data points lost
 freely_data <- freely_data %>%
@@ -70,6 +72,7 @@ freely_data <- freely_data %>%
     remove_selected_columns = TRUE
   )
 
+# Further Data Clean + Selection of variables for model building
 quote_data <- freely_data %>%
   mutate(
     trip_start_date_clean = dmy(trip_start_date_clean),
@@ -144,7 +147,6 @@ set.seed(185)
 quote_data <- quote_data %>%
   mutate(across(everything(), as.numeric))
 
-
 inTrain <- createDataPartition(
   y = quote_data$convert,
   p = .8,
@@ -158,17 +160,16 @@ test <- quote_data[-inTrain, ]
 train_r <- as.factor(train$convert)
 test_r <- as.factor(test$convert)
 
+# Store column numbers which contain binary variables
 binary_cols <- which(sapply(quote_data, function(x) all(unique(x) %in% c(0, 1))))
 non_binary_cols <- setdiff(1:ncol(train), binary_cols)
 
-
-# Scaling road data
+## Scaling
+# Calculate mean and sd of each column
 mean_train <- colMeans(train[, non_binary_cols])
 sd_train <- apply(train[, non_binary_cols], 2, sd)
 
-
-## Scaling
-
+# Create the train and test scaled dataframes
 train_scaled <- cbind(
   scale(train[, non_binary_cols]),
   train[, binary_cols]
@@ -178,17 +179,84 @@ test_scaled <- as.matrix(
   cbind(scale(test[, non_binary_cols], center = mean_train, scale = sd_train),
         test[, binary_cols]))
 
-
-# Balancing Imbalanced Dataset
+## Balancing Imbalanced Dataset
 # SMOTE to oversample minority class
 x_scaled <- as.data.frame(train_scaled[, !colnames(train_scaled) == "convert"])
 y <- as.factor(train_scaled$convert) # I've renamed this variable. dont need to scale this. 
-genData = SMOTE(x_scaled,y, K = 5, dup_size = 5)
+genData = SMOTE(x_scaled,y, K = 5, dup_size = 2)
 genData <- genData$data
-genData$class <- as.numeric(as.character(genData$class))
+genData$class <- as.factor(as.character(genData$class))
+
+train_scaled$convert <- as.factor(train_scaled$convert)
+genData <- train_scaled
+
+# Undersampling using Tomek Links to eliminate opposite class nearest neighbours
+# genData <- recipe(~., train_scaled) %>%
+#   step_tomek(convert) %>%
+#   prep() %>%
+#   bake(new_data = NULL)
+
+# Near Miss -1 
+# train_nearmiss_sample <- recipe(~., genData) %>%
+#   step_nearmiss(convert, under_ratio = 3) %>%
+#   prep() %>%
+#   bake(new_data = NULL)
+# table(train_nearmiss_sample$convert)
+# genData <- train_nearmiss_sample
+
 # Renamed class to convert.
 colnames(genData)[colnames(genData) == "class"] <- "convert"
 table(genData$convert)
+
+## BOOST ANALYSIS
+boost_df <- freely_data %>% 
+  select(
+    "Specified Items",
+    "Adventure Activities",
+    "Snow Sports",
+    "Gadget Cover",
+    "Motorcycle Cover",
+    "Extra Cancellation",
+    "Rental Vehicle Insurance Excess",
+    "Cruise Cover",
+    "Existing Medical Condition(s)",
+    "convert"
+  ) %>%
+  mutate(
+    convert = case_when(
+      convert == "NO"  ~ 0,
+      convert == "YES" ~ 1
+    )
+  )
+
+boost_regression <- glm(convert ~ ., data = boost_df, family = binomial)
+summary_obj <- summary(boost_regression)
+coef_df <- as.data.frame(summary_obj$coefficients)
+coef_df <- round(coef_df, 3)
+coef_df$Variable <- rownames(coef_df)
+
+writexl::write_xlsx(coef_df, "boost_regression_summary.xlsx")
+
+boost_summary <- freely_data %>%
+  mutate(convert_num = ifelse(convert == "YES", 1, 0)) %>%
+  select(ends_with("_name"), convert_num, quote_price) %>%
+  pivot_longer(cols = starts_with("boost"), 
+               names_to = "boost_col", 
+               values_to = "boost_name") %>%
+  filter(!is.na(boost_name) & boost_name != "") %>%
+  mutate(boost_name = str_trim(boost_name)) %>%
+  separate_rows(boost_name, sep = ";|,") %>%
+  group_by(boost_name) %>%
+  summarise(
+    total_occurrences = n(),              # how many times this boost appears
+    total_converted = sum(convert_num),   # total YES conversions
+    average_quote_price = mean(quote_price),
+    conversion = total_converted / total_occurrences,
+    expected_revenue = average_quote_price * conversion
+  ) %>%
+  arrange(desc(total_converted))
+
+print(boost_summary)
 
 # SMOTED dataset ~ use for training the model
 write.csv(genData, "training_SMOTE_dataset.csv")
@@ -199,6 +267,9 @@ write.csv(test, "test_original_dataset.csv")
 
 # Original training dataset
 write.csv(train, "training_dataset_80%.csv")
+
+# Original training dataset but scaled
+write.csv(train_scaled, "train_scaled_dataset.csv")
 
 train_stats <- data.frame(
   cbind(mean = mean_train, sd = sd_train)
