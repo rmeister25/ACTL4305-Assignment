@@ -14,14 +14,11 @@ regionSplit <- strsplit(sourceData$regions, ", ")
 
 regions <- unique(unlist(regionSplit))
 
-df <- data.frame(matrix(NA, nrow = 70000, ncol = 0))
+df <- data.frame(matrix(NA, nrow = 67021, ncol = 0))
 
 for (region in regions) {
   df[region] <- sapply(regionSplit, function(v) region %in% v)
 }
-
-df$platform <- as.factor(sourceData$platform)
-df$discount <- as.factor(sourceData$discount)
 
 boostSplit <- sourceData[grepl("^boost_.*_name$", names(sourceData))] %>%
   unite(boostNames, boost_1_name, boost_2_name, boost_3_name, boost_4_name,
@@ -36,11 +33,27 @@ for (boost in boosts) {
   df[boost] <- sapply(boostSplit, function(v) boost %in% v)
 }
 
-df$convert <- sourceData$convert
+categoricalDF <- cbind(df, sourceData[, c("platform", 
+                                          "discount", 
+                                          "traveller_categories", 
+                                          "convert")
+                                      ])
 
-names(df) <- make.names(names(df))
+categoricalDF <- data.frame(lapply(categoricalDF, as.factor))
 
-df <- data.frame(lapply(df, as.factor))
+numericalDF <- sourceData[, c("quote_price", 
+                              "country_count",
+                              "log_ppp",
+                              "Human.rights.index",
+                              "Rule.of.Law.Index",
+                              "water_death_rate",
+                              "Quote.and.Start.Delay",
+                              "num_people",
+                              "carer_load_ratio",
+                              "avg_crime_rate")]
+
+numericalDF <- data.frame(lapply(numericalDF, as.numeric))
+df <- cbind(categoricalDF, numericalDF)
 
 convertTree <- rpart(convert ~ ., data = df, method = "class",
                      control = rpart.control(cp = 0.001))
@@ -53,5 +66,3 @@ rf_model <- randomForest(
   ntree = 300,
   mtry = ncol(df) - 1
 )
-
-fancyRpartPlot(convertTree, tweak = 1)
