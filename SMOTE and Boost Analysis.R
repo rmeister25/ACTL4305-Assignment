@@ -11,7 +11,7 @@ library(broom)
 
 #setwd("Desktop/ACTL4305-Assignment")
 options(scipen = 999)
-freely_data <- read.csv("Cleaned_DestinatiVieons_Dates_Freely_Data.csv")
+freely_data <- read.csv("Cleaned_Destinations_Dates_Freely_Data.csv")
 freely_data$X <- NULL
 
 # BOOST SUMMARY
