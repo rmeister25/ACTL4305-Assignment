@@ -289,23 +289,23 @@ ggplot(tidy_df, aes(x = reorder(term, estimate), y = estimate, fill = significan
   theme(plot.title = element_text(size = 12, face = "bold"))
 
 # SMOTED dataset ~ use for training the model
-write.csv(genData, "training_SMOTE_dataset.csv")
+write.csv(genData, "training_SMOTE_dataset.csv", row.names = FALSE)
 
 # The names of the sheets should be the other way round. 
-write.csv(test_scaled, "test_scaled_dataset.csv")
-write.csv(test, "test_original_dataset.csv")
+write.csv(test_scaled, "test_scaled_dataset.csv", row.names = FALSE)
+write.csv(test, "test_original_dataset.csv", row.names = FALSE)
 
 # Original training dataset
-write.csv(train, "training_dataset_80%.csv")
+write.csv(train, "training_dataset_80%.csv", row.names = FALSE)
 
 # Original training dataset but scaled
-write.csv(train_scaled, "train_scaled_dataset.csv")
+write.csv(train_scaled, "train_scaled_dataset.csv", row.names = FALSE)
 
 train_stats <- data.frame(
   cbind(mean = mean_train, sd = sd_train)
 )
 
-write.csv(train_stats, "mean_sd_training_data.csv")
+write.csv(train_stats, "mean_sd_training_data.csv", row.names = FALSE)
 
 # ## NON-SCALED training data
 # x <- as.data.frame(train[,-28])
@@ -314,5 +314,5 @@ write.csv(train_stats, "mean_sd_training_data.csv")
 # genData <- genData$data
 # table(genData$class)
 # 
-# write.csv(genData, "training_scaled_SMOTE_dataset.csv")
-# write.csv(test_scaled, "test_scaled_dataset.csv")
+# write.csv(genData, "training_scaled_SMOTE_dataset.csv", row.names = FALSE)
+# write.csv(test_scaled, "test_scaled_dataset.csv", row.names = FALSE)
