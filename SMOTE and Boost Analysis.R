@@ -1,15 +1,41 @@
 library(dplyr)
+library(tidyr)
+library(stringr)
 library(lubridate)
 library(fastDummies)
 library(caret)
 library(glmnet)
 library(smotefamily)
 library(themis)
+library(broom)
 
-setwd("Desktop/ACTL4305-Assignment")
+#setwd("Desktop/ACTL4305-Assignment")
 options(scipen = 999)
-freely_data <- read.csv("Cleaned_Destinations_Dates_Freely_Data.csv")
+freely_data <- read.csv("Cleaned_DestinatiVieons_Dates_Freely_Data.csv")
 freely_data$X <- NULL
+
+# BOOST SUMMARY
+boost_summary <- freely_data %>%
+  mutate(convert_num = ifelse(convert == "YES", 1, 0),
+         quote_price <- as.numeric(quote_price)) %>%
+  select(ends_with("_name"), convert_num, quote_price) %>%
+  pivot_longer(cols = starts_with("boost"), 
+               names_to = "boost_col", 
+               values_to = "boost_name") %>%
+  filter(!is.na(boost_name) & boost_name != "") %>%
+  mutate(boost_name = str_trim(boost_name)) %>%
+  separate_rows(boost_name, sep = ";|,") %>%
+  group_by(boost_name) %>%
+  summarise(
+    total_occurrences = n(),              # how many times this boost appears
+    total_converted = sum(convert_num),   # total YES conversions
+    average_quote_price = mean(quote_price),
+    conversion = total_converted / total_occurrences,
+    expected_revenue = average_quote_price * conversion
+  ) %>%
+  arrange(desc(total_converted))
+
+writexl::write_xlsx(boost_summary, "boost_stats_summary.xlsx")
 
 # Removing NA values ~ 8000 data points lost
 freely_data <- freely_data %>%
@@ -188,7 +214,7 @@ genData <- genData$data
 genData$class <- as.factor(as.character(genData$class))
 
 train_scaled$convert <- as.factor(train_scaled$convert)
-genData <- train_scaled
+
 
 # Undersampling using Tomek Links to eliminate opposite class nearest neighbours
 # genData <- recipe(~., train_scaled) %>%
@@ -237,26 +263,30 @@ coef_df$Variable <- rownames(coef_df)
 
 writexl::write_xlsx(coef_df, "boost_regression_summary.xlsx")
 
-boost_summary <- freely_data %>%
-  mutate(convert_num = ifelse(convert == "YES", 1, 0)) %>%
-  select(ends_with("_name"), convert_num, quote_price) %>%
-  pivot_longer(cols = starts_with("boost"), 
-               names_to = "boost_col", 
-               values_to = "boost_name") %>%
-  filter(!is.na(boost_name) & boost_name != "") %>%
-  mutate(boost_name = str_trim(boost_name)) %>%
-  separate_rows(boost_name, sep = ";|,") %>%
-  group_by(boost_name) %>%
-  summarise(
-    total_occurrences = n(),              # how many times this boost appears
-    total_converted = sum(convert_num),   # total YES conversions
-    average_quote_price = mean(quote_price),
-    conversion = total_converted / total_occurrences,
-    expected_revenue = average_quote_price * conversion
-  ) %>%
-  arrange(desc(total_converted))
+# Tidy model
+tidy_df <- broom::tidy(boost_regression) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    term = str_remove_all(term, "`"),       # remove backticks
+    term = str_replace_all(term, "_", " "), # optional: replace underscores with spaces
+    p.value = round(p.value, 3),
+    significance = ifelse(p.value < 0.05, "Significant", "Not Significant")
+  )
 
-print(boost_summary)
+# Plot as clean bar chart
+ggplot(tidy_df, aes(x = reorder(term, estimate), y = estimate, fill = significance)) +
+  geom_col(width = 0.6, alpha = 0.8) +
+  coord_flip() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("Significant" = "red", "Not Significant" = "grey60")) +
+  labs(
+    title = "Logistic Regression Coefficients",
+    x = NULL,
+    y = "Coefficient Estimate",
+    fill = "Significance"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(size = 12, face = "bold"))
 
 # SMOTED dataset ~ use for training the model
 write.csv(genData, "training_SMOTE_dataset.csv")
